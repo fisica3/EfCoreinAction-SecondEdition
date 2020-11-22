@@ -193,7 +193,7 @@ namespace Test.UnitTests.TestDataLayer
         }
     }
 
-    [Fact]
+    [Fact (Skip = "Esperando correccion del autor")]
     public void TestThenIncludeSortSingle()
     {
         //SETUP
@@ -224,7 +224,7 @@ namespace Test.UnitTests.TestDataLayer
         }
     }
 
-    [Fact (Skip = "Esperando correccion del autor")]
+    [Fact]
     public void TestIncludeFilterSingle()
     {
         //SETUP
