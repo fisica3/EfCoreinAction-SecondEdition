@@ -12,8 +12,8 @@ variables:
   # Variables that must match the ones defined in Azure Pipelines and Service Connections
   dockerRegistryServiceConnection: 'repasowebappacr-1806'
   #not working: variables.dockerRegistryName
-  imageRepository: variables.imageName
-  containerRegistry: variables.acrio
+  imageRepository: $(imageName)
+  containerRegistry: $(acrio)
   dockerfilePath: '$(Build.SourcesDirectory)/BookApp/Dockerfile'
   tag: '$(Build.BuildId)'
   
