@@ -1,0 +1,154 @@
+# Docker
+# Build and push an image to Azure Container Registry
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+- master
+
+resources:
+- repo: self
+
+variables:
+  # Variables that must match the ones defined in Azure Pipelines and Service Connections
+  dockerRegistryServiceConnection: 'repasowebappacr-1806'
+  #not working: variables.dockerRegistryName
+  imageRepository: variables.imageName
+  containerRegistry: variables.acrio
+  dockerfilePath: '$(Build.SourcesDirectory)/BookApp/Dockerfile'
+  tag: '$(Build.BuildId)'
+  
+  # Agent VM image name
+  vmImageName: 'windows-latest'
+
+stages:
+- stage: Build
+  displayName: Compile stage
+  jobs:  
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: Restore
+      inputs:
+        command: restore
+        projects: '**/*.csproj'
+    - task: DotNetCoreCLI@2
+      displayName: Build DotNet
+      inputs:
+          projects: '**/*.csproj'
+          arguments: '--configuration $(BuildConfiguration)'
+
+#This stage is executed only if variables.runTest is true, it can a default value, but it could be changed at execution time          
+- stage: Test
+  displayName: Test stage  
+  jobs:  
+  - job: Test
+    displayName: Test
+    condition: eq(variables.runTest, true)
+    pool:
+      vmImage: $(vmImageName)
+    steps:          
+    - task: DotNetCoreCLI@2
+      displayName: Test      
+      inputs:
+        command: test
+        projects: '**/Test/*.csproj'
+        arguments: '--configuration $(BuildConfiguration) --collect "XPlat Code coverage" -- RunConfiguration.DisableAppDomain=true --settings **/coverlet.runsettings' 
+        testRunTitle: EFCore2.Tests
+    - script: 'dotnet tool install --global dotnet-reportgenerator-globaltool --version 4.6.4'  
+      displayName: 'Install ReportGenerator tool' 
+    - script: 'reportgenerator -reports:$(Agent.TempDirectory)/**/coverage.cobertura.xml -targetdir:$(Build.SourcesDirectory)/coverlet/reports -reporttypes:"Cobertura" -assemblyfilters:-*.Views'  
+      displayName: 'Create reports'
+    - task: PublishCodeCoverageResults@1  
+      displayName: 'Publish code coverage'  
+      inputs:  
+        codeCoverageTool: Cobertura  
+        summaryFileLocation: '$(Build.SourcesDirectory)/coverlet/reports/Cobertura.xml'      
+          
+# Please notice that for this stage we are using Ubuntu, just in order to deal with Docker Linux settings          
+- stage: Publish
+  displayName: Build(image) and push stage
+  jobs:  
+  - job: Publish
+    displayName: Publish
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: DotNetCoreCLI@2
+      displayName: 'Publish webapp'
+      inputs:
+        command: publish
+        arguments: '--configuration $(BuildConfiguration) --output $(System.DefaultWorkingDirectory)/PublishedWebApp'
+        zipAfterPublish: false   
+        buildProperties: 
+    - script: ls    
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: '$(imageRepository)'
+        command: 'buildAndPush'
+        Dockerfile: '**/Dockerfile'
+        buildContext: '$(System.DefaultWorkingDirectory)/PublishedWebApp'
+        tags: '$(tag)'
+        
+    - task: Docker@2
+      displayName: Push alterno
+      inputs:
+        containerRegistry: 'fisica3RegistryVSE'
+        repository: 'inseguro'
+        command: 'buildAndPush'
+        Dockerfile: '**/Dockerfile'
+        buildContext: '$(System.DefaultWorkingDirectory)/PublishedWebApp'
+        tags: '$(tag)'        
+
+- stage: qa_deploy
+  jobs:
+  - deployment: qa_deploy
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'qa-hello'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureRmWebAppDeployment@4
+            displayName: 'Deploy Azure App Service'
+            inputs:
+              ConnectionType: 'AzureRM'
+              azureSubscription: 'repasowebapp - Azure'
+              appType: 'webAppContainer'
+              WebAppName: 'repasowebapp'
+              deployToSlotOrASE: true
+              ResourceGroupName: 'RG_repasowebapp'
+              SlotName: 'qa'
+              DockerNamespace: '$(containerRegistry)'
+              DockerRepository: '$(imageRepository)'
+              DockerImageTag: '$(tag)'
+              
+#If desired this stage can be "protected" by using aprovals or another kind of checkers
+- stage: prod_deploy
+  jobs:
+  - deployment: prod_deploy
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'prod-hello'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureRmWebAppDeployment@4
+            displayName: 'Deploy Azure App Service'
+            inputs:
+              ConnectionType: 'AzureRM'
+              azureSubscription: 'repasowebapp - Azure'
+              appType: 'webAppContainer'
+              WebAppName: 'repasowebapp'
+              deployToSlotOrASE: true
+              ResourceGroupName: 'RG_repasowebapp'
+              SlotName: 'production'
+              DockerNamespace: '$(containerRegistry)'
+              DockerRepository: '$(imageRepository)'
+              DockerImageTag: '$(tag)'
