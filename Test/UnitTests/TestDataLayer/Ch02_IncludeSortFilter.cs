@@ -224,7 +224,7 @@ namespace Test.UnitTests.TestDataLayer
         }
     }
 
-    [Fact]
+    [Fact (Skip = "Esperando correccion del autor")]
     public void TestIncludeFilterSingle()
     {
         //SETUP
